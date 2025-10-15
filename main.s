@@ -33,7 +33,7 @@ _start:
 
 UART_LOOP:
     /* Lê UART (polling) */
-    ldwio   r8, UART_DATA(r15)
+    ldwio   r8, 0x1000(r15)
     andi    r9, r8, 0x8000           /* Bit RVALID */
     beq     r9, r0, UART_LOOP        /* Espera até receber dado */
 
@@ -41,10 +41,10 @@ UART_LOOP:
 
     /* Ecoa o caractere de volta */
 WAIT_UART_WRITE:
-    ldwio   r9, UART_CONTROL(r15)
+    ldwio   r9, 0x1004(r15)
     andhi   r9, r9, 0xFFFF
     beq     r9, r0, WAIT_UART_WRITE
-    stwio   r8, UART_DATA(r15)
+    stwio   r8, 0x1000(r15)
 
     /* Verifica tecla ENTER (NEWLINE) */
     movi    r11, NEWLINE
@@ -75,15 +75,14 @@ PRINT_LOOP:
     ldb     r9, (r8)
     beq     r9, r0, PRINT_END
 WAIT_WRITE:
-    ldwio   r10, UART_CONTROL(r15)
+    ldwio   r10, 0x1004(r15)
     andhi   r10, r10, 0xFFFF
     beq     r10, r0, WAIT_WRITE
-    stwio   r9, UART_DATA(r15)
+    stwio   r9, 0x1000(r15)
     addi    r8, r8, 1
     br      PRINT_LOOP
 PRINT_END:
     ret
-
 
 /**************************************************************************/
 /* Mensagens                                                              */
