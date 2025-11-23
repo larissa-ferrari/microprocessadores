@@ -1,164 +1,186 @@
-# Projeto de Microprocessadores
+# Relatório do Projeto Final de Microprocessadores - 2025
 
-## Sobre o Projeto
-Este projeto consiste em um sistema desenvolvido para a placa DE2 Altera que implementa um aplicativo console via comunicação UART. O sistema aceita comandos do usuário para controlar LEDs, executar animações e gerenciar um cronômetro, utilizando a linguagem de montagem do Nios II.
+## Introdução
 
----
+Este relatório apresenta o desenvolvimento completo do projeto final da disciplina de **Microprocessadores**, realizado no segundo semestre de 2025. O objetivo foi implementar um aplicativo em linguagem Assembly para o processador **Nios II**, utilizando a placa **DE2‑Altera**, capaz de interpretar comandos recebidos via UART e executar ações específicas no hardware da placa.
 
-## Estrutura do Projeto
+O sistema desenvolvido permite:
+- Controle manual de LEDs vermelhos.
+- Cálculo e exibição do número triangular.
+- Exibição da frase **“Oi 2026”** com rotação automática, reversão de sentido e pausa via botões.
+- Controle de animações e sincronização via interrupções de hardware.
+- Timer configurado para intervalos fixos de 200 ms.
 
-### Arquivos Principais
-
-#### 1. `main.s`
-Arquivo principal do sistema que gerencia o loop de comandos e inicialização.
-
-_start:
-
-* Configuração inicial do sistema
-* Inicialização de hardware
-* Loop principal de polling de comandos
-* Despacho para subrotinas específicas
-
-#### 2. `led.s`
-Controla os LEDs individuais da placa.
-
-CALL_LED:
-
-* Processamento de comandos 00 (acender) e 01 (apagar)
-* Conversão ASCII para número do LED
-* Aplicação de máscaras de bits
-* Atualização do estado dos LEDs
-
-#### 3. `animacao.s`
-Implementa o sistema de animação dos LEDs.
-
-CALL_ANIMATION:
-
-* Controle de direção baseado no switch SW0
-* Animação direita-esquerda ou esquerda-direita
-* Atualização contínua do contador de animação
-* Integração com estado manual dos LEDs
-
-
-#### 4. `cronometro.s`
-Gerencia o sistema de cronômetro com display de 7 segmentos.
-
-CONTA_TEMPO:
-
-* Incremento de segundos e minutos
-* Tratamento de overflow (59s → 00s, 59m → 00m)
-* Conversão para display de 7 segmentos
-* Atualização do hardware de display
-
-#### 5. `subrotinas.s`
-Contém rotinas auxiliares do sistema.
-
-GET_JTAG:
-
-* Leitura de caracteres da UART
-* Conversão ASCII para numérico
-* Armazenamento em buffer circular
-
-PUT_JTAG:
-
-* Transmissão serial de caracteres
-* Verificação de hardware disponível
-
-SET_TIMER:
-
-* Configuração do timer para 200ms
-* Habilitação de interrupções
-
-
-#### 6. `org.s`
-Gerencia o tratamento de interrupções do sistema.
-
-RTI:
-
-* Salvamento de contexto
-* Identificação da fonte de interrupção
-* Tratamento de timer e botões
-* Restauração de contexto
-
+A seguir, cada módulo do código será explicado individualmente.
 
 ---
 
-## Especificações de Hardware
+## Desenvolvimento
 
-### Endereços de Mapeamento
-* UART: 0x10001000
-* LED_BASE: 0x10000000
-* SWITCH: 0x40
-* SEVEN_SEG_BASE: 0x10000020
-* TIMER_BASE: 0x10002000
-* PUSHBUTTON_BASE: 0x10000050
+### # Arquivo `main.s`
+O arquivo `main.s` atua como o **ponto de entrada do sistema**, inicializando o ambiente, configurando interrupções e executando o loop principal responsável por:
+- Ler comandos via UART (`GET_JTAG`).
+- Interpretá‑los de acordo com a tabela estabelecida no enunciado.
+- Redirecionar para a subrotina correspondente:
+  - `CALL_LED` → acende ou apaga LEDs vermelhos.
+  - `MOSTRA_TRIANGULAR` → realiza o cálculo do número triangular.
+  - `DISPLAY_OI2026` → exibe e inicia a rotação da frase.
+  - `CANCELA_ROTACAO` → interrompe a rotação.
 
+Trecho ilustrativo:
+```
+call GET_JTAG
+ldb r11, 0(r7)
+beq r11, r10, LED
+```
 
-### Variáveis Globais
-* FLAG_ANIMACAO: Controla estado da animação (0=desligada, 1=ligada)
-* BUFFER_COMMAND: Buffer para armazenamento de comandos
-* LEDS_MANUAIS_STATE: Estado atual dos LEDs controlados manualmente
-* ANIMATION_COUNTER: Índice do LED atual na animação
-* FLAG_CRONOMETRO: Controla estado do cronômetro
-* CRONOMETRO_PAUSA: Controla pausa do cronômetro
-* TICK_COUNTER: Contador de ticks para temporização
-
-
----
-
-## Comandos Suportados
-
-### Tabela de Comandos
-
-| Comando | Ação |
-|---------|------|
-| 00 XX | Acender LED XX (00-17) |
-| 01 XX | Apagar LED XX (00-17) |
-| 10 | Iniciar animação dos LEDs |
-| 11 | Parar animação dos LEDs |
-| 20 | Iniciar cronômetro |
-| 21 | Cancelar cronômetro |
+A main também configura:
+- Timer de 200 ms (`SET_TIMER`)
+- Habilitação de interrupções (timer + botões)
+- Inicialização dos estados de animação, cronômetro e LEDs.
 
 ---
 
-## Sistema de Interrupções
+### # Arquivo `led.s`
+O arquivo `led.s` contém a subrotina **CALL_LED**, responsável por interpretar os comandos `00 xx` e `01 xx` e alterar diretamente o estado dos LEDs vermelhos.
 
-### Fluxo de Temporização
-* Timer (200ms) → RTI → Verifica flags → Executa animação/cronômetro
+Principais etapas:
+1. Ler os dígitos do número do LED no buffer.
+2. Converter dezena e unidade para um índice (`LED = dezena*10 + unidade`).
+3. Criar máscara `1 << LED`.
+4. Acender (`OR`) ou apagar (`AND`) o LED.
+5. Atualizar `LEDS_MANUAIS_STATE`.
 
+Exemplo:
+```
+sll r4, r4, r14   # máscara: 1 << LED
+or r13, r13, r4   # acende LED
+```
 
-### Tratamento de Interrupções
-* Timer (IRQ 0): Atualização de animação e cronômetro
-* Botões (IRQ 1): Pausa/continuação do cronômetro
-
+Se a animação estiver ativa, CALL_LED apenas atualiza memória, deixando o display sob controle da animação.
 
 ---
 
-## Funcionalidades Principais
+### # Arquivo `animacao.s`
+Este módulo contém duas grandes funcionalidades:
 
-### Controle de LEDs
-- Acionamento individual de LEDs via comandos
-- Suporte a LEDs de 0 a 17
-- Preservação de estado durante animações
+#### ## 1. Animação dos LEDs vermelhos – `CALL_ANIMATION`
+Executada automaticamente pelo timer:
+- Move um LED aceso ao longo da barra.
+- Direção definida pelo switch **SW0**:
+  - 0 → sentido crescente (0 → 17)
+  - 1 → sentido decrescente (17 → 0)
+- Usa variável `ANIMATION_COUNTER` para armazenar o LED atual.
 
-### Sistema de Animação
-- Direção controlada por switch SW0
-- Velocidade de 200ms por passo
-- Integração com controle manual
+#### ## 2. Exibição rotativa da frase “Oi 2026”
+A frase é armazenada em `OI2026_BUFFER` e quatro caracteres são exibidos por vez:
 
-### Cronômetro Digital
-- Contagem de minutos e segundos
-- Display em 7 segmentos
-- Controle de pausa via botão
+Subrotinas:
+- **DISPLAY_OI2026**  
+  Monta e exibe a janela inicial “Oi20”, ativa a rotação.
 
-### Interface UART
-- Recebimento de comandos via serial
-- Echo de caracteres digitados
-- Buffer para armazenamento de comandos
+- **ROTATE_OI2026**  
+  Chamado pelo timer, realiza:
+  - Deslocamento circular da janela.
+  - Respeita `FLAG_ROTACAO_DIR` (direção) e `FLAG_ROTACAO_PAUSA`.
+
+Exemplo:
+```
+addi r5, r5, 1   # próxima posição
+blt r5, r8, IDX_OK
+movi r5, 0       # wrap-around
+```
+
+---
+
+### # Arquivo `cronometro.s`
+Inclui três funcionalidades principais:
+
+#### ## 1. `CONTA_TEMPO`
+Incrementa o cronômetro MM:SS:
+- Unidade dos segundos → dezenas → minutos.
+- Propagação automática no estouro.
+- Usado pelo timer (a cada 5 ticks = 1s).
+
+#### ## 2. `CANCELA_CRONOMETRO`
+Reseta todas as variáveis de tempo:
+```
+stw r0, TEMPO_SEG_UNI
+stw r0, TEMPO_SEG_DEZ
+...
+```
+
+#### ## 3. `MOSTRA_TRIANGULAR`
+Implementa o comando **10**:
+- Lê valor de `SW7-SW0`.
+- Calcula o número triangular.
+- Extrai milhares, centenas, dezenas e unidades.
+- Converte para os códigos de display de 7 segmentos.
+
+---
+
+### # Arquivo `org.s`
+Implementa o **tratamento global de interrupções** (IRQ0 + IRQ1):
+
+#### ## IRQ0 – Timer
+Chamado a cada 200 ms:
+- Avança animação de LEDs (`CALL_ANIMATION`)
+- Avança rotação "Oi 2026" (`ROTATE_OI2026`)
+- Atualiza cronômetro a cada 1 segundo
+
+#### ## IRQ1 – Botões
+- **KEY1** → alterna sentido da rotação.
+- **KEY2** → pausa/despausa rotação.
+
+Exemplo:
+```
+xori r12, r12, 1   # alterna direção ou pausa
+```
+
+---
+
+### # Arquivo `subrotinas.s`
+
+#### ## PUT_JTAG
+Envia caracteres para o terminal via UART.
+
+#### ## GET_JTAG
+Lê caracteres digitados pelo usuário:
+- Limpa o buffer.
+- Aceita somente dígitos 0–9.
+- Converte ASCII → número.
+- Grava em `BUFFER_COMMAND`.
+
+#### ## SET_TIMER
+Configura o timer para interrupções a cada 200 ms:
+```
+movia r4, 10000000
+stwio r5, 8(r17)
+stwio r5, 12(r17)
+```
+
+---
+
+## Conclusão
+
+O sistema desenvolvido atende **integralmente** às especificações do enunciado do projeto final de Microprocessadores.  
+Todas as funcionalidades solicitadas foram implementadas:
+
+- Controle individual de LEDs.  
+- Cálculo e exibição de número triangular.  
+- Exibição animada da frase *"Oi 2026"* com:
+  - Rotação automática,
+  - Mudança de direção pelo botão KEY1,
+  - Pausa e retomada pelo KEY2.  
+- Tratamento robusto de interrupções e timer.  
+- Estrutura modular, clara e totalmente documentada.
+
+O código foi testado e validado com sucesso, cumprindo todos os requisitos técnicos e funcionais da placa DE2 e do processador Nios II.
 
 ---
 
 ## Desenvolvido por
-* Beatriz de Oliveira Cavalheri
-* Eduarda Moreira da Silva
-* Larissa Rodrigues Ferrari
+
+- Beatriz de Oliveira Cavalheri
+- Eduarda Moreira da Silva
+- Larissa Rodrigues Ferrari
