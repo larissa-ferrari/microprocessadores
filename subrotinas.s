@@ -25,7 +25,7 @@
 # r18: flags de animação/cronômetro
 # =====================================================================
 
-.equ TIMER_BASE, 0x10002000
+.equ TIMER_BASE, 0x10002000     # Endereço base do Timer na placa DE2.
 .equ COUNTER, 0x2000
 
 # =====================================================================
@@ -41,13 +41,13 @@ PUT_JTAG:
     stw r4, 0(sp)
 
 PUT_JTAG_POLL:
-    ldwio r4, 4(r6)          # lê registrador de controle da JTAG UART
-    andhi r4, r4, 0xffff     # verifica espaço para escrita (WSPACE)
-    beq r4, r0, PUT_JTAG_POLL  # se não há espaço, continua polling
-    stwio r5, 0(r6)          # envia o caractere em r5
+    ldwio r4, 4(r6)             # lê registrador de controle da JTAG UART
+    andhi r4, r4, 0xffff        # verifica espaço para escrita (WSPACE)
+    beq r4, r0, PUT_JTAG_POLL   # se não houver espaço, continua esperando (polling)
+    stwio r5, 0(r6)             # envia o caractere em r5
 
 END_PUT:
-    # EPÍLOGO — restaura r4
+    # EPÍLOGO — restaura r4 e retorna
     ldw r4, 0(sp)
     addi sp, sp, 4
     ret                      # retorna ao chamador
@@ -63,7 +63,7 @@ END_PUT:
 # =====================================================================
 .global GET_JTAG
 GET_JTAG:
-    # PRÓLOGO
+    # PRÓLOGO - Guarda ra, r4 e r5 — todos serão usados
     subi sp, sp, 12
     stw ra, 0(sp)
     stw r4, 4(sp)
@@ -87,25 +87,31 @@ GET_POLL:
     andi r8, r4, 0x8000       # testa bit RVALID (dado válido?)
     beq r8, zero, GET_POLL    # se vazio, continua polling
 
-    andi r5, r4, 0x00FF       # pega apenas os 8 bits do caractere
+    andi r5, r4, 0x00FF       # Extrai o byte do caractere (bits 7 a 0)
 
-    movi r9, 0x0A             # ENTER?
-    beq r5, r9, END_GET
+    movi r9, 0x0A             # Verifica se o caractere é ENTER
+    beq r5, r9, END_GET       # Se foi ENTER termina o processo de leitura.
 
     # ecoa caractere no terminal
     stwio r5, 0(r6)
 
     # converte ASCII para número APENAS se for dígito '0'..'9'
+    # Filtro: só aceita dígitos '0'..'9'
+
+    # Se caractere < '0' → ignora
     movi r10, '0'
     blt r5, r10, GET_POLL
 
+    # Se caractere > '9' → ignora
     movi r10, '9'
     bgt r5, r10, GET_POLL
 
+
+    # Conversão ASCII → número
     subi r5, r5, '0'          # ASCII → número 0..9
-    stb r5, 0(r7)             # grava no BUFFER_COMMAND
-    addi r7, r7, 1
-    br GET_POLL
+    stb r5, 0(r7)             # Guarda o número no BUFFER_COMMAND
+    addi r7, r7, 1            # Avança ponteiro
+    br GET_POLL               # Continua lendo caracteres
 # ------------------------------------------------------------
 
 END_GET:
@@ -158,10 +164,11 @@ SET_TIMER:
     stwio r5, 12(r17)
     
     # Controle: START=1, CONT=1, ITO=1 (0x7)
+    # Liga o timer e habilita interrupções
     movi r4, 0x7
     stwio r4, 4(r17)             # registrador de controle (offset 4)
 
-    # EPÍLOGO
+    # EPÍLOGO - restaura registradores
     ldw r17, 0(sp)
     ldw r4, 4(sp)
     ldw r5, 8(sp)
